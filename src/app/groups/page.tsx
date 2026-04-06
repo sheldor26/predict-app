@@ -2,18 +2,38 @@
 
 import { useState } from "react";
 import Link from "next/link";
-
-const mockGroups = [
-  { id: "1", name: "Los del laburo", members: 8, myScore: 1240, myRank: 2, pending: 3 },
-  { id: "2", name: "Fútbol friends", members: 12, myScore: 890, myRank: 5, pending: 1 },
-  { id: "3", name: "Familia", members: 5, myScore: 320, myRank: 1, pending: 0 },
-];
+import { useApp } from "@/context/AppContext";
 
 export default function GroupsPage() {
+  const { user, groups, createGroup, joinGroup } = useApp();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [joinError, setJoinError] = useState("");
+
+  const myGroups = groups.filter((g) => g.members.some((m) => m.user_id === user.id));
+
+  function handleCreate() {
+    if (!groupName.trim()) return;
+    const group = createGroup(groupName.trim());
+    setGroupName("");
+    setShowCreate(false);
+    window.location.href = `/groups/${group.id}`;
+  }
+
+  function handleJoin() {
+    if (!inviteCode.trim()) return;
+    const group = joinGroup(inviteCode.trim());
+    if (!group) {
+      setJoinError("Código inválido. Revisá y volvé a intentar.");
+      return;
+    }
+    setInviteCode("");
+    setJoinError("");
+    setShowJoin(false);
+    window.location.href = `/groups/${group.id}`;
+  }
 
   return (
     <main className="flex flex-col min-h-screen" style={{ background: "#0a0a0f" }}>
@@ -39,14 +59,14 @@ export default function GroupsPage() {
               Predict
             </span>
           </Link>
-          <div className="flex items-center gap-2">
+          <Link href="/profile" className="flex items-center gap-2">
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
               style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", color: "white" }}
             >
-              J
+              {user.avatar}
             </div>
-          </div>
+          </Link>
         </div>
       </div>
 
@@ -92,7 +112,9 @@ export default function GroupsPage() {
                 type="text"
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
                 placeholder="Nombre del grupo"
+                autoFocus
                 className="flex-1 px-3 py-2 rounded-lg text-sm outline-none"
                 style={{
                   background: "rgba(255,255,255,0.05)",
@@ -101,11 +123,18 @@ export default function GroupsPage() {
                 }}
               />
               <button
+                onClick={handleCreate}
                 className="px-4 py-2 rounded-lg text-sm font-medium"
                 style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", color: "white" }}
-                onClick={() => { setShowCreate(false); setGroupName(""); }}
               >
                 Crear
+              </button>
+              <button
+                onClick={() => { setShowCreate(false); setGroupName(""); }}
+                className="px-3 py-2 rounded-lg text-sm"
+                style={{ background: "rgba(255,255,255,0.05)", color: "#6b7280" }}
+              >
+                ✕
               </button>
             </div>
           </div>
@@ -124,9 +153,11 @@ export default function GroupsPage() {
               <input
                 type="text"
                 value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                onChange={(e) => { setInviteCode(e.target.value.toUpperCase()); setJoinError(""); }}
+                onKeyDown={(e) => e.key === "Enter" && handleJoin()}
                 placeholder="CÓDIGO"
-                maxLength={8}
+                maxLength={10}
+                autoFocus
                 className="flex-1 px-3 py-2 rounded-lg text-sm outline-none font-mono tracking-widest"
                 style={{
                   background: "rgba(255,255,255,0.05)",
@@ -135,66 +166,71 @@ export default function GroupsPage() {
                 }}
               />
               <button
+                onClick={handleJoin}
                 className="px-4 py-2 rounded-lg text-sm font-medium"
                 style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", color: "white" }}
-                onClick={() => { setShowJoin(false); setInviteCode(""); }}
               >
                 Unirse
               </button>
+              <button
+                onClick={() => { setShowJoin(false); setInviteCode(""); setJoinError(""); }}
+                className="px-3 py-2 rounded-lg text-sm"
+                style={{ background: "rgba(255,255,255,0.05)", color: "#6b7280" }}
+              >
+                ✕
+              </button>
             </div>
+            {joinError && (
+              <p className="text-xs mt-2" style={{ color: "#f87171" }}>{joinError}</p>
+            )}
+            <p className="text-xs mt-2" style={{ color: "#4b5563" }}>
+              Probá con: LABURO01 o FUTBOL22
+            </p>
           </div>
         )}
 
         {/* Lista de grupos */}
         <div className="flex flex-col gap-3">
-          {mockGroups.map((g) => (
-            <Link
-              key={g.id}
-              href={`/groups/${g.id}`}
-              className="rounded-xl p-4 flex items-center gap-4 transition-all"
-              style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                textDecoration: "none",
-              }}
-            >
-              {/* Avatar */}
-              <div
-                className="w-11 h-11 rounded-xl flex items-center justify-center text-lg font-bold flex-shrink-0"
-                style={{ background: "rgba(139, 92, 246, 0.15)", color: "#a78bfa" }}
+          {myGroups.map((g) => {
+            const me = g.members.find((m) => m.user_id === user.id);
+            const myRank = [...g.members]
+              .sort((a, b) => b.score_in_group - a.score_in_group)
+              .findIndex((m) => m.user_id === user.id) + 1;
+
+            return (
+              <Link
+                key={g.id}
+                href={`/groups/${g.id}`}
+                className="rounded-xl p-4 flex items-center gap-4 transition-all"
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  textDecoration: "none",
+                }}
               >
-                {g.name.charAt(0)}
-              </div>
-
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm" style={{ color: "#f3f4f6" }}>
-                  {g.name}
+                <div
+                  className="w-11 h-11 rounded-xl flex items-center justify-center text-lg font-bold flex-shrink-0"
+                  style={{ background: "rgba(139, 92, 246, 0.15)", color: "#a78bfa" }}
+                >
+                  {g.name.charAt(0)}
                 </div>
-                <div className="text-xs mt-0.5" style={{ color: "#6b7280" }}>
-                  {g.members} miembros · #{g.myRank} en ranking
-                </div>
-              </div>
-
-              {/* Score + pending */}
-              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                <div className="text-sm font-bold" style={{ color: "#a78bfa" }}>
-                  {g.myScore.toLocaleString()} pts
-                </div>
-                {g.pending > 0 && (
-                  <div
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: "rgba(251, 146, 60, 0.2)", color: "#fb923c" }}
-                  >
-                    {g.pending} pendiente{g.pending > 1 ? "s" : ""}
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm" style={{ color: "#f3f4f6" }}>
+                    {g.name}
                   </div>
-                )}
-              </div>
-            </Link>
-          ))}
+                  <div className="text-xs mt-0.5" style={{ color: "#6b7280" }}>
+                    {g.members.length} miembros · #{myRank} en ranking
+                  </div>
+                </div>
+                <div className="text-sm font-bold flex-shrink-0" style={{ color: "#a78bfa" }}>
+                  {(me?.score_in_group ?? 0).toLocaleString()} pts
+                </div>
+              </Link>
+            );
+          })}
         </div>
 
-        {mockGroups.length === 0 && (
+        {myGroups.length === 0 && (
           <div className="text-center py-16" style={{ color: "#4b5563" }}>
             <div className="text-4xl mb-3">👥</div>
             <p className="text-sm">No estás en ningún grupo todavía.</p>

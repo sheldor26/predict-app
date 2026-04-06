@@ -1,113 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
+import { useApp } from "@/context/AppContext";
+import { PredictionCategory, CATEGORY_LABELS } from "@/lib/types";
 
-type Vote = "yes" | "no" | null;
+export default function GroupPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const { user, groups, getPredictionsForGroup, createPrediction, vote, resolve } = useApp();
 
-interface Prediction {
-  id: string;
-  question: string;
-  category: string;
-  deadline: string;
-  votes: { yes: number; no: number };
-  resolved: boolean;
-  correct_answer?: "yes" | "no";
-  my_vote?: Vote;
-}
+  const group = groups.find((g) => g.id === id);
+  const predictions = getPredictionsForGroup(id);
 
-const mockPredictions: Prediction[] = [
-  {
-    id: "1",
-    question: "¿Argentina le gana a Brasil este domingo?",
-    category: "⚽ Deportes",
-    deadline: "Dom 20:00",
-    votes: { yes: 9, no: 3 },
-    resolved: false,
-    my_vote: null,
-  },
-  {
-    id: "2",
-    question: "¿El dólar blue pasa los $1500 esta semana?",
-    category: "💰 Finanzas",
-    deadline: "Vie 23:59",
-    votes: { yes: 5, no: 7 },
-    resolved: false,
-    my_vote: "yes",
-  },
-  {
-    id: "3",
-    question: "¿Juan llega tarde al asado del sábado?",
-    category: "👥 Personal",
-    deadline: "Sáb 14:00",
-    votes: { yes: 6, no: 1 },
-    resolved: true,
-    correct_answer: "yes",
-    my_vote: "yes",
-  },
-  {
-    id: "4",
-    question: "¿Llueve mañana en CABA?",
-    category: "🌦️ Clima",
-    deadline: "Mañana 08:00",
-    votes: { yes: 4, no: 4 },
-    resolved: false,
-    my_vote: null,
-  },
-];
-
-const mockLeaderboard = [
-  { name: "Sofi", score: 1240, rank: "Oracle", streak: 7, avatar: "S", isMe: false },
-  { name: "Juan", score: 890, rank: "Sharp", streak: 3, avatar: "J", isMe: true },
-  { name: "Nico", score: 760, rank: "Sharp", streak: 1, avatar: "N", isMe: false },
-  { name: "Marti", score: 540, rank: "Player", streak: 0, avatar: "M", isMe: false },
-];
-
-export default function GroupPage({ params }: { params: { id: string } }) {
-  const [predictions, setPredictions] = useState<Prediction[]>(mockPredictions);
   const [tab, setTab] = useState<"feed" | "leaderboard">("feed");
   const [showNewPrediction, setShowNewPrediction] = useState(false);
   const [newQuestion, setNewQuestion] = useState("");
   const [newDeadline, setNewDeadline] = useState("");
+  const [newCategory, setNewCategory] = useState<PredictionCategory>("personal");
 
-  function vote(predictionId: string, answer: "yes" | "no") {
-    setPredictions((prev) =>
-      prev.map((p) => {
-        if (p.id !== predictionId || p.resolved) return p;
-        const prev_vote = p.my_vote;
-        const updated = { ...p, votes: { ...p.votes } };
-        // Quitar voto anterior
-        if (prev_vote) updated.votes[prev_vote]--;
-        // Poner nuevo voto (toggle)
-        if (prev_vote !== answer) {
-          updated.votes[answer]++;
-          updated.my_vote = answer;
-        } else {
-          updated.my_vote = null;
-        }
-        return updated;
-      })
+  if (!group) {
+    return (
+      <main className="flex flex-col min-h-screen items-center justify-center" style={{ background: "#0a0a0f" }}>
+        <p style={{ color: "#6b7280" }}>Grupo no encontrado.</p>
+        <Link href="/groups" className="mt-4 text-sm" style={{ color: "#a78bfa" }}>
+          ← Volver a grupos
+        </Link>
+      </main>
     );
   }
 
-  function createPrediction() {
+  const pending = predictions.filter((p) => !p.resolved && p.my_vote === null).length;
+  const leaderboard = [...group.members].sort((a, b) => b.score_in_group - a.score_in_group);
+
+  function handleCreate() {
     if (!newQuestion.trim()) return;
-    const newP: Prediction = {
-      id: String(Date.now()),
-      question: newQuestion.trim(),
-      category: "👥 Personal",
-      deadline: newDeadline || "Mañana",
-      votes: { yes: 0, no: 0 },
-      resolved: false,
-      my_vote: null,
-    };
-    setPredictions((prev) => [newP, ...prev]);
+    createPrediction(id, newQuestion.trim(), newCategory, newDeadline || "Mañana");
     setNewQuestion("");
     setNewDeadline("");
+    setNewCategory("personal");
     setShowNewPrediction(false);
   }
-
-  const pending = predictions.filter((p) => !p.resolved && p.my_vote === null).length;
 
   return (
     <main className="flex flex-col min-h-screen" style={{ background: "#0a0a0f" }}>
@@ -125,10 +57,10 @@ export default function GroupPage({ params }: { params: { id: string } }) {
           </Link>
           <div className="flex-1">
             <div className="font-bold" style={{ color: "#f3f4f6" }}>
-              Los del laburo
+              {group.name}
             </div>
             <div className="text-xs" style={{ color: "#6b7280" }}>
-              8 miembros
+              {group.members.length} miembros
               {pending > 0 && (
                 <span
                   className="ml-2 px-1.5 py-0.5 rounded font-semibold"
@@ -187,6 +119,7 @@ export default function GroupPage({ params }: { params: { id: string } }) {
               value={newQuestion}
               onChange={(e) => setNewQuestion(e.target.value)}
               placeholder="¿Qué vas a predecir?"
+              autoFocus
               className="w-full px-3 py-2 rounded-lg text-sm outline-none mb-2"
               style={{
                 background: "rgba(255,255,255,0.05)",
@@ -194,21 +127,39 @@ export default function GroupPage({ params }: { params: { id: string } }) {
                 color: "#e8e8ed",
               }}
             />
-            <input
-              type="text"
-              value={newDeadline}
-              onChange={(e) => setNewDeadline(e.target.value)}
-              placeholder="Deadline (ej: Mañana 20:00)"
-              className="w-full px-3 py-2 rounded-lg text-sm outline-none mb-3"
-              style={{
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                color: "#e8e8ed",
-              }}
-            />
+            <div className="flex gap-2 mb-2">
+              <select
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value as PredictionCategory)}
+                className="flex-1 px-3 py-2 rounded-lg text-sm outline-none"
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "#e8e8ed",
+                }}
+              >
+                {(Object.entries(CATEGORY_LABELS) as [PredictionCategory, string][]).map(([val, label]) => (
+                  <option key={val} value={val} style={{ background: "#1a0533" }}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={newDeadline}
+                onChange={(e) => setNewDeadline(e.target.value)}
+                placeholder="Deadline (ej: Vie 20:00)"
+                className="flex-1 px-3 py-2 rounded-lg text-sm outline-none"
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: "#e8e8ed",
+                }}
+              />
+            </div>
             <div className="flex gap-2">
               <button
-                onClick={createPrediction}
+                onClick={handleCreate}
                 className="flex-1 py-2 rounded-lg text-sm font-medium"
                 style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", color: "white" }}
               >
@@ -228,9 +179,17 @@ export default function GroupPage({ params }: { params: { id: string } }) {
         {/* Feed */}
         {tab === "feed" && (
           <div className="flex flex-col gap-3">
+            {predictions.length === 0 && (
+              <div className="text-center py-16" style={{ color: "#4b5563" }}>
+                <div className="text-4xl mb-3">🔮</div>
+                <p className="text-sm">No hay predicciones todavía.</p>
+                <p className="text-sm">¡Sé el primero en predecir algo!</p>
+              </div>
+            )}
             {predictions.map((p) => {
               const total = p.votes.yes + p.votes.no;
               const yesPercent = total > 0 ? Math.round((p.votes.yes / total) * 100) : 50;
+              const isCreator = p.created_by === user.id;
 
               return (
                 <div
@@ -250,7 +209,7 @@ export default function GroupPage({ params }: { params: { id: string } }) {
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <div className="flex-1">
                       <div className="text-xs mb-1" style={{ color: "#6b7280" }}>
-                        {p.category} · {p.deadline}
+                        {CATEGORY_LABELS[p.category]} · {p.deadline}
                       </div>
                       <div className="text-sm font-medium leading-snug" style={{ color: "#e8e8ed" }}>
                         {p.question}
@@ -272,15 +231,12 @@ export default function GroupPage({ params }: { params: { id: string } }) {
                     )}
                   </div>
 
-                  {/* Barra de resultados */}
+                  {/* Barra */}
                   <div className="flex items-center gap-2 mb-3">
                     <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
                       <div
                         className="h-full rounded-full transition-all"
-                        style={{
-                          width: `${yesPercent}%`,
-                          background: "linear-gradient(90deg, #7c3aed, #a855f7)",
-                        }}
+                        style={{ width: `${yesPercent}%`, background: "linear-gradient(90deg, #7c3aed, #a855f7)" }}
                       />
                     </div>
                     <div className="text-xs" style={{ color: "#6b7280" }}>
@@ -288,21 +244,15 @@ export default function GroupPage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
 
-                  {/* Botones de voto */}
+                  {/* Botones voto */}
                   {!p.resolved && (
                     <div className="flex gap-2">
                       <button
                         onClick={() => vote(p.id, "yes")}
                         className="flex-1 py-2 rounded-lg text-sm font-medium transition-all"
                         style={{
-                          background:
-                            p.my_vote === "yes"
-                              ? "rgba(139, 92, 246, 0.3)"
-                              : "rgba(255,255,255,0.04)",
-                          border:
-                            p.my_vote === "yes"
-                              ? "1px solid rgba(139, 92, 246, 0.5)"
-                              : "1px solid rgba(255,255,255,0.06)",
+                          background: p.my_vote === "yes" ? "rgba(139, 92, 246, 0.3)" : "rgba(255,255,255,0.04)",
+                          border: p.my_vote === "yes" ? "1px solid rgba(139, 92, 246, 0.5)" : "1px solid rgba(255,255,255,0.06)",
                           color: p.my_vote === "yes" ? "#c4b5fd" : "#9ca3af",
                         }}
                       >
@@ -312,26 +262,37 @@ export default function GroupPage({ params }: { params: { id: string } }) {
                         onClick={() => vote(p.id, "no")}
                         className="flex-1 py-2 rounded-lg text-sm font-medium transition-all"
                         style={{
-                          background:
-                            p.my_vote === "no"
-                              ? "rgba(139, 92, 246, 0.3)"
-                              : "rgba(255,255,255,0.04)",
-                          border:
-                            p.my_vote === "no"
-                              ? "1px solid rgba(139, 92, 246, 0.5)"
-                              : "1px solid rgba(255,255,255,0.06)",
+                          background: p.my_vote === "no" ? "rgba(139, 92, 246, 0.3)" : "rgba(255,255,255,0.04)",
+                          border: p.my_vote === "no" ? "1px solid rgba(139, 92, 246, 0.5)" : "1px solid rgba(255,255,255,0.06)",
                           color: p.my_vote === "no" ? "#c4b5fd" : "#9ca3af",
                         }}
                       >
                         No {p.my_vote === "no" ? "✓" : ""} · {p.votes.no}
                       </button>
+                      {isCreator && (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => resolve(p.id, "yes")}
+                            className="px-3 py-2 rounded-lg text-xs font-medium"
+                            style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", color: "#4ade80" }}
+                          >
+                            ✓ Sí
+                          </button>
+                          <button
+                            onClick={() => resolve(p.id, "no")}
+                            className="px-3 py-2 rounded-lg text-xs font-medium"
+                            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#f87171" }}
+                          >
+                            ✗ No
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {p.resolved && (
                     <div className="text-xs" style={{ color: "#4b5563" }}>
-                      Resultado: {p.correct_answer === "yes" ? "Sí" : "No"} ·{" "}
-                      {p.votes.yes + p.votes.no} votos totales
+                      Resultado: {p.correct_answer === "yes" ? "Sí" : "No"} · {total} votos totales
                     </div>
                   )}
                 </div>
@@ -343,18 +304,18 @@ export default function GroupPage({ params }: { params: { id: string } }) {
         {/* Leaderboard */}
         {tab === "leaderboard" && (
           <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
-            {mockLeaderboard.map((u, i) => (
+            {leaderboard.map((m, i) => (
               <div
-                key={i}
+                key={m.user_id}
                 className="flex items-center gap-4 px-5 py-4"
                 style={{
-                  background: u.isMe
+                  background: m.user_id === user.id
                     ? "rgba(139, 92, 246, 0.1)"
                     : i === 0
                     ? "rgba(139, 92, 246, 0.05)"
                     : "rgba(255,255,255,0.02)",
-                  borderBottom: i < mockLeaderboard.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-                  border: u.isMe ? "1px solid rgba(139, 92, 246, 0.2)" : undefined,
+                  borderBottom: i < leaderboard.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                  border: m.user_id === user.id ? "1px solid rgba(139, 92, 246, 0.2)" : undefined,
                 }}
               >
                 <div
@@ -367,23 +328,23 @@ export default function GroupPage({ params }: { params: { id: string } }) {
                   className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
                   style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", color: "white" }}
                 >
-                  {u.avatar}
+                  {m.avatar}
                 </div>
                 <div className="flex-1">
                   <div className="text-sm font-semibold flex items-center gap-2" style={{ color: "#f3f4f6" }}>
-                    {u.name}
-                    {u.isMe && (
+                    {m.username}
+                    {m.user_id === user.id && (
                       <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(139, 92, 246, 0.2)", color: "#c4b5fd" }}>
                         vos
                       </span>
                     )}
                   </div>
                   <div className="text-xs" style={{ color: "#6b7280" }}>
-                    {u.rank} {u.streak > 0 ? `· 🔥 ${u.streak} racha` : ""}
+                    {m.rank}{m.streak > 0 ? ` · 🔥 ${m.streak} racha` : ""}
                   </div>
                 </div>
                 <div className="text-sm font-bold" style={{ color: "#a78bfa" }}>
-                  {u.score.toLocaleString()} pts
+                  {m.score_in_group.toLocaleString()} pts
                 </div>
               </div>
             ))}
